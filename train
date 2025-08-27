@@ -1,0 +1,78 @@
+
+from google.colab import files
+uploaded = files.upload()
+
+!pip install openpyxl
+
+import pandas as pd
+filename = list(uploaded.keys())[0]
+df = pd.read_excel(filename)
+
+from sklearn.preprocessing import LabelEncoder
+label_encoder = LabelEncoder()  # << LabelEncoder 
+df = df.rename(columns={'문장': 'text', '감정': 'label'})
+df['label_num'] = label_encoder.fit_transform(df['label'])
+
+from sklearn.model_selection import train_test_split
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+
+tokenizer = Tokenizer(num_words=5000, oov_token='<OOV>')
+tokenizer.fit_on_texts(df['text'])
+sequences = tokenizer.texts_to_sequences(df['text'])
+
+max_len = max(len(seq) for seq in sequences)
+X = pad_sequences(sequences, maxlen=max_len)
+y = df['label_num'].values
+
+X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
+
+
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Embedding, LSTM, Dense, Dropout, BatchNormalization
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.optimizers import Adam
+
+vocab_size = 5000
+num_classes = len(label_encoder.classes_)
+
+model = Sequential()
+model.add(Embedding(input_dim=vocab_size, output_dim=128, input_length=max_len))
+model.add(LSTM(64, dropout=0.3, recurrent_dropout=0.3, return_sequences=False))
+model.add(BatchNormalization())
+model.add(Dense(num_classes, activation='softmax'))
+
+model.compile(loss='sparse_categorical_crossentropy', optimizer=Adam(learning_rate=1e-4), metrics=['accuracy'])
+
+early_stop = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
+
+model.fit(
+    X_train, y_train,
+    epochs=16,
+    batch_size=32,
+    validation_data=(X_val, y_val),
+    callbacks=[early_stop]
+)
+
+import pickle
+with open('label_encoder.pkl', 'wb') as f:
+    pickle.dump(label_encoder, f)
+with open('tokenizer.pkl', 'wb') as f:
+    pickle.dump(tokenizer, f)
+
+model.save('text_classification_model.h5')
+
+
+converter = tf.lite.TFLiteConverter.from_keras_model(model)
+converter.target_spec.supported_ops = [
+    tf.lite.OpsSet.TFLITE_BUILTINS,
+    tf.lite.OpsSet.SELECT_TF_OPS
+]
+converter._experimental_lower_tensor_list_ops = False  # TensorList 강제 변환 방지
+converter.experimental_enable_resource_variables = True  # 리소스 변수 허용
+tflite_model = converter.convert()
+
+with open('text_classification_model.tflite', 'wb') as f:
+    f.write(tflite_model)
+
+print("✓ Select TF Ops 모드로 TFLite 변환 완료")
