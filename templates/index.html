@@ -1,1 +1,41 @@
 
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>일기 감정 분석</title>
+</head>
+<body>
+    <h1>일기 감정 분석</h1>
+    <textarea id="diary" rows="5" cols="50"></textarea>
+    <button onclick="sendDiary()">분석</button>
+
+    <div id="sticker-container"></div>
+
+    <script>
+        function sendDiary() {
+            const inputText = document.getElementById("diary").value;
+
+            fetch("http://라즈베리파이_IP:5000/predict", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: inputText })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log("서버 응답:", data);
+                showSticker(data.emotion, data.sticker);
+            })
+            .catch(error => console.error("Error:", error));
+        }
+
+        function showSticker(emotion, stickerUrl) {
+            const container = document.getElementById("sticker-container");
+            container.innerHTML = `
+                <p>감정: ${emotion}</p>
+                <img src="${stickerUrl}" alt="${emotion} 스티커" width="100">
+            `;
+        }
+    </script>
+</body>
+</html>
+
